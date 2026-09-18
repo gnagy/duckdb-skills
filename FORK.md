@@ -16,7 +16,9 @@ upstream. The plugin, its skills and their names are upstream's; nothing here re
 | `fix/read-file-databases` | `read_any` on SQLite fails at bind time; `.duckdb` fell through to `read_blob`                    |
 | `fix/docs-version-filter` | The docs + blog advice still searched `version = 'stable'`, which the index does not hold         |
 
-To take upstream changes: `git fetch upstream && git merge upstream/main` on `main`.
+A fresh clone has no `upstream` remote; add it once with
+`git remote add upstream https://github.com/duckdb/duckdb-skills.git`. To take upstream changes:
+`git fetch upstream && git merge upstream/main` on `main`.
 
 ## Fork-only files
 
