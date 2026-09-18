@@ -30,6 +30,21 @@ For **remote files**, prepend the necessary LOAD/SECRET before the macro:
 
 For **local files**, no prefix needed.
 
+**Database files** (`.duckdb`, `.db`, `.sqlite`, `.sqlite3`) hold several tables, so `read_any` does
+not apply. Attach read-only and list what is inside instead. A file starting with `SQLite format 3`
+(`head -c 15 RESOLVED_PATH`) is SQLite and attaches with `(TYPE sqlite, READ_ONLY)`; anything else
+is DuckDB and attaches with `(READ_ONLY)`:
+
+```bash
+duckdb -csv -c "
+ATTACH 'RESOLVED_PATH' AS src (TYPE sqlite, READ_ONLY);
+SELECT table_name, estimated_size, column_count FROM duckdb_tables() WHERE database_name = 'src';
+"
+```
+
+Then `DESCRIBE src.<table>;` and `FROM src.<table> LIMIT 20;` for the tables relevant to the
+question, and skip the macro below.
+
 ```bash
 duckdb -csv -c "
 CREATE OR REPLACE MACRO read_any(file_name) AS TABLE
@@ -40,7 +55,6 @@ CREATE OR REPLACE MACRO read_any(file_name) AS TABLE
      , blob_case AS (FROM read_blob(file_name))
      , spatial_case AS (FROM st_read(file_name))
      , excel_case AS (FROM read_xlsx(file_name))
-     , sqlite_case AS (FROM sqlite_scan(file_name, (SELECT name FROM sqlite_master(file_name) LIMIT 1)))
      , ipynb_case AS (
          WITH nb AS (FROM read_json_auto(file_name))
          SELECT cell_idx, cell.cell_type,
@@ -58,7 +72,6 @@ CREATE OR REPLACE MACRO read_any(file_name) AS TABLE
       WHEN file_name ILIKE '%.xlsx' OR file_name ILIKE '%.xls' THEN 'excel_case'
       WHEN file_name ILIKE '%.shp' OR file_name ILIKE '%.gpkg' OR file_name ILIKE '%.fgb' OR file_name ILIKE '%.kml' THEN 'spatial_case'
       WHEN file_name ILIKE '%.ipynb' THEN 'ipynb_case'
-      WHEN file_name ILIKE '%.db' OR file_name ILIKE '%.sqlite' OR file_name ILIKE '%.sqlite3' THEN 'sqlite_case'
       ELSE 'blob_case'
     END
   );
@@ -71,7 +84,7 @@ FROM read_any('RESOLVED_PATH') LIMIT 20;
 
 **If this fails:**
 - **`duckdb: command not found`** → invoke `/duckdb-skills:install-duckdb` and retry.
-- **Missing extension** (e.g. spatial files, xlsx, sqlite) → retry with `INSTALL spatial; LOAD spatial;` or `INSTALL sqlite_scanner; LOAD sqlite_scanner;` prepended before the macro.
+- **Missing extension** (e.g. spatial files, xlsx, sqlite) → retry with `INSTALL spatial; LOAD spatial;` or `INSTALL sqlite; LOAD sqlite;` prepended before the macro or the `ATTACH`.
 - **Wrong reader / parse error** → use the correct `read_*` function directly instead of `read_any`.
 
 ## Step 2 — Answer
