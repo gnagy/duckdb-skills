@@ -83,17 +83,48 @@ WHERE table_name IN ('<table1>', '<table2>');
 "
 ```
 
-**Ad-hoc mode** — probe the source:
+**Ad-hoc mode** — probe the source, inside the sandbox preamble:
 
 ```bash
-duckdb :memory: -csv -c "
-SET allowed_paths=['FILE_PATH'];
+duckdb :memory: -csv <<'SQL'
+<SANDBOX_PREAMBLE>
+SELECT count() AS row_count FROM 'FILE_PATH';
+SQL
+```
+
+The sandbox preamble grants access to the referenced files only, then locks the configuration:
+
+```sql
+<EXTENSION_LOADS>
+SET allowed_paths=[<ALLOWED_PATHS>];
+SET allowed_directories=[<ALLOWED_DIRECTORIES>];
 SET enable_external_access=false;
 SET allow_persistent_secrets=false;
 SET lock_configuration=true;
-SELECT count() AS row_count FROM 'FILE_PATH';
-"
 ```
+
+Build it from every file the query references, using absolute paths:
+
+- **Plain file** (`'data.csv'`) → add the path to `ALLOWED_PATHS`.
+- **Glob** (`'data/part-*.parquet'`) → `allowed_paths` does not match globs; add the fixed
+  directory before the first wildcard (`'/abs/data/'`) to `ALLOWED_DIRECTORIES` instead.
+- **DuckDB database** (`.duckdb`, or a `.db` whose first bytes are not `SQLite format 3`) → add the
+  path **and** `<path>.wal` to `ALLOWED_PATHS`. DuckDB checks for the write-ahead log on open even
+  when none exists, and fails without it. Attach it read-only: `ATTACH 'PATH' AS db (READ_ONLY);`.
+- **Extension-backed format** → put `INSTALL <ext>; LOAD <ext>;` in `EXTENSION_LOADS`. With external
+  access disabled DuckDB cannot autoload extensions, so they must be loaded before the `SET` lines:
+
+  | Extension | Files                                                   |
+  |-----------|---------------------------------------------------------|
+  | `excel`   | `.xlsx`                                                 |
+  | `sqlite`  | `.sqlite`, `.sqlite3`, `.db` starting `SQLite format 3` |
+  | `spatial` | `.shp`, `.gpkg`, `.fgb`, `.kml`, `.geojson`             |
+  | `avro`    | `.avro`                                                 |
+
+  A shapefile reads its sidecar files (`.shx`, `.dbf`, `.prj`) too, so allow its directory rather
+  than the `.shp` alone.
+
+Drop the `SET allowed_paths` or `SET allowed_directories` line when its list is empty.
 
 **Evaluate**:
 - If the query already has a `LIMIT`, `count()`, or other aggregation that bounds the output -> safe, proceed.
@@ -112,16 +143,12 @@ Skip this step for queries that are intrinsically bounded (e.g. `DESCRIBE`, `SUM
 
 ```bash
 duckdb :memory: -csv <<'SQL'
-SET allowed_paths=['FILE_PATH'];
-SET enable_external_access=false;
-SET allow_persistent_secrets=false;
-SET lock_configuration=true;
+<SANDBOX_PREAMBLE>
 <QUERY>;
 SQL
 ```
 
-Replace `FILE_PATH` with the actual file path extracted from the query or `--file` argument.
-If multiple files are referenced, include all paths in the `allowed_paths` list.
+Build `<SANDBOX_PREAMBLE>` as in Step 4, from every file the query or `--file` argument references.
 
 **Session mode** (user-trusted database):
 
